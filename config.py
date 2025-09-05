@@ -1,4 +1,3 @@
-# config.py
 from pathlib import Path
 
 # Path to your gguf model file - update this

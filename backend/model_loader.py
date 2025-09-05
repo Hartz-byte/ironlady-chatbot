@@ -2,6 +2,7 @@ import os
 from typing import Dict
 from llama_cpp import Llama
 
+# mistral-7b-instruct model path
 MODEL_PATH = "../../../local_models/mistral-7b-instruct/mistral-7b-instruct-v0.2.Q4_K_M.gguf"
 
 MODEL_CONFIG = {
@@ -93,7 +94,7 @@ class LocalModel:
                 top_p=self.config["top_p"],
                 repeat_penalty=self.config["repeat_penalty"],
                 stop=["USER:", "\n\n"],
-                echo=False  # Don't include the prompt in the response
+                echo=False
             )
             
             # Extract and clean the response
