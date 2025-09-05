@@ -2,11 +2,21 @@ import json
 import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
 from .model_loader import LocalModel
 
 app = FastAPI(title="Iron Lady Chatbot API")
+
+# Mount static files
+app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")), name="static")
+
+# Add favicon route
+@app.get('/favicon.ico', include_in_schema=False)
+async def favicon():
+    return FileResponse(os.path.join(os.path.dirname(__file__), "static", "favicon.ico"))
 
 # Enable CORS
 app.add_middleware(
@@ -37,8 +47,7 @@ def startup_event():
         raise
 
 # Register startup event
-from fastapi import FastAPI, HTTPException
-app = FastAPI(title="Iron Lady Chatbot API", on_startup=[startup_event])
+app.on_event("startup")(startup_event)
 
 class ChatRequest(BaseModel):
     question: str
