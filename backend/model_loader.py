@@ -6,13 +6,17 @@ MODEL_PATH = "../../../local_models/mistral-7b-instruct/mistral-7b-instruct-v0.2
 
 MODEL_CONFIG = {
     "model_path": MODEL_PATH,
-    "n_ctx": 2048,
-    "n_threads": 4,
-    "n_gpu_layers": 30,
-    "temperature": 0.2,
-    "max_tokens": 256,
-    "top_p": 0.95,
-    "repeat_penalty": 1.1
+    "n_ctx": 2048,  # Context window size
+    "n_threads": 4,  # Number of CPU threads to use
+    "n_gpu_layers": 30,  # Number of layers to offload to GPU
+    "temperature": 0.2,  # Lower for more focused responses
+    "max_tokens": 512,   # Maximum tokens to generate
+    "top_p": 0.95,      # Nucleus sampling parameter
+    "repeat_penalty": 1.1,  # Penalize repetition
+    "n_batch": 512,     # Batch size for prompt processing
+    "main_gpu": 0,      # Use first GPU
+    "tensor_split": [0.9],  # Use 90% of GPU memory
+    "verbose": True     # Show debug info
 }
 
 _system_prompt = """
@@ -49,26 +53,57 @@ class LocalModel:
     def __init__(self, config: Dict = MODEL_CONFIG):
         self.config = config
         print(f"Loading local model from: {config['model_path']}")
-        self.llm = Llama(**config)
-
-    def generate(self, user_message: str, max_tokens: int = 256) -> str:
-        prompt = PROMPT_TEMPLATE.format(
-            system_prompt=_system_prompt.strip(),
-            company_context=COMPANY_CONTEXT.strip(),
-            user_message=user_message.strip()
+        
+        # Ensure the model file exists
+        if not os.path.exists(config['model_path']):
+            raise FileNotFoundError(f"Model file not found at {config['model_path']}")
+            
+        # Initialize the model with GPU support
+        self.llm = Llama(
+            model_path=config['model_path'],
+            n_ctx=config['n_ctx'],
+            n_threads=config['n_threads'],
+            n_gpu_layers=config['n_gpu_layers'],
+            n_batch=config.get('n_batch', 512),
+            main_gpu=config.get('main_gpu', 0),
+            tensor_split=config.get('tensor_split', [0.9]),
+            verbose=config.get('verbose', True)
         )
-        # llama-cpp-python create API
-        result = self.llm.create(
-            prompt=prompt,
-            max_tokens=max_tokens,
-            temperature=0.2,
-            top_p=0.95
-        )
-        text = ""
-        # extract model text (llama-cpp-python returns choices)
-        if "choices" in result and len(result["choices"]) > 0:
-            text = result["choices"][0].get("text", "").strip()
+        
+        # Verify GPU is being used
+        if self.llm._model is not None:
+            print(f"Model loaded successfully with {config['n_gpu_layers']} layers on GPU")
         else:
-            # some versions return 'generated_text' in a list
-            text = result.get("generated_text", "")
-        return text
+            print("Warning: Model not properly initialized")
+
+    def generate(self, user_message: str, max_tokens: int = 256):
+        """Generate a response using the local LLM."""
+        prompt = PROMPT_TEMPLATE.format(
+            system_prompt=_system_prompt,
+            company_context=COMPANY_CONTEXT,
+            user_message=user_message
+        )
+        
+        try:
+            # Generate response
+            response = self.llm(
+                prompt=prompt,
+                max_tokens=min(max_tokens, self.config["max_tokens"]),
+                temperature=self.config["temperature"],
+                top_p=self.config["top_p"],
+                repeat_penalty=self.config["repeat_penalty"],
+                stop=["USER:", "\n\n"],
+                echo=False  # Don't include the prompt in the response
+            )
+            
+            # Extract and clean the response
+            if 'choices' in response and len(response['choices']) > 0:
+                return response['choices'][0]['text'].strip()
+            elif 'text' in response:
+                return response['text'].strip()
+            else:
+                return "I'm sorry, I couldn't generate a response. Please try again."
+                
+        except Exception as e:
+            print(f"Error in generate: {str(e)}")
+            return f"I encountered an error: {str(e)}"

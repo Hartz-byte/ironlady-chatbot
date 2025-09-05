@@ -26,9 +26,31 @@ with open(FAQ_PATH, "r", encoding="utf-8") as f:
 # Global model instance
 MODEL = None
 
+# Initialize model at startup
+def startup_event():
+    global MODEL
+    try:
+        MODEL = LocalModel()
+        print("Model loaded successfully at startup")
+    except Exception as e:
+        print(f"Error loading model at startup: {str(e)}")
+        raise
+
+# Register startup event
+from fastapi import FastAPI, HTTPException
+app = FastAPI(title="Iron Lady Chatbot API", on_startup=[startup_event])
+
 class ChatRequest(BaseModel):
     question: str
     use_model: bool = True
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint to verify the API is running"""
+    return {
+        "status": "healthy",
+        "model_loaded": MODEL is not None
+    }
 
 def init_model():
     """Initialize the local LLM model."""

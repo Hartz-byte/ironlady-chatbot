@@ -4,7 +4,13 @@ import os
 from datetime import datetime
 
 # Configuration
-API_URL = os.environ.get("CHAT_API_URL", "http://127.0.0.1:8000/chat")
+BASE_URL = os.environ.get("API_BASE_URL", "http://127.0.0.1:8000")
+CHAT_ENDPOINT = f"{BASE_URL}/chat"
+HEALTH_ENDPOINT = f"{BASE_URL}/health"
+
+# Timeout settings
+HEALTH_CHECK_TIMEOUT = 10  # seconds
+CHAT_TIMEOUT = 300  # 5 minutes for chat requests
 
 # Set page config
 st.set_page_config(
@@ -46,6 +52,33 @@ st.markdown("""
 # Initialize session state
 if "history" not in st.session_state:
     st.session_state.history = []
+    st.session_state.model_ready = False
+    st.session_state.loading = False
+
+# Check API health
+def check_api_health():
+    try:
+        response = requests.get(HEALTH_ENDPOINT, timeout=HEALTH_CHECK_TIMEOUT)
+        if response.status_code == 200:
+            data = response.json()
+            st.session_state.model_ready = data.get("model_loaded", False)
+            return True
+    except Exception as e:
+        print(f"Health check failed: {e}")
+    return False
+
+# Show loading state while checking API
+if not st.session_state.get('initialized', False):
+    with st.spinner('Checking API status...'):
+        if not check_api_health():
+            st.error("❌ API is not available. Please make sure the backend server is running.")
+            st.stop()
+        elif not st.session_state.model_ready:
+            st.warning("⚠️ Model is still loading. Please wait...")
+            st.stop()
+        else:
+            st.session_state.initialized = True
+            st.rerun()
 
 # Header
 st.title("Iron Lady Chatbot 🤖")
@@ -79,8 +112,16 @@ if submit_button and user_input.strip():
     # Make API request
     with st.spinner("Thinking..."):
         try:
-            # Make API request
-            response = requests.post(API_URL, json=payload, timeout=60)
+            # Check API health first
+            if not check_api_health():
+                raise Exception("API is not available")
+                
+            # Make API request with increased timeout
+            response = requests.post(
+                CHAT_ENDPOINT, 
+                json=payload, 
+                timeout=CHAT_TIMEOUT
+            )
             response.raise_for_status()
             data = response.json()
             
