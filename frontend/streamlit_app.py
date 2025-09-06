@@ -189,7 +189,7 @@ if send and user_input.strip():
     st.session_state.history.append({
         "role": "user",
         "content": user_input,
-        "time": datetime.now().strftime("%H:%M")
+        "time": datetime.now().strftime("%I:%M %p")
     })
 
     # API request
@@ -199,7 +199,7 @@ if send and user_input.strip():
             resp = requests.post(CHAT_ENDPOINT, json=payload, timeout=300)
             resp.raise_for_status()
             data = resp.json()
-            answer = data.get("answer", "⚠️ Sorry, I couldn’t generate a response.")
+            answer = data.get("answer", "⚠️ Sorry, I couldn't generate a response.")
     except Exception as e:
         answer = f"❌ Error contacting backend: {e}"
 
@@ -207,13 +207,13 @@ if send and user_input.strip():
     st.session_state.history.append({
         "role": "bot",
         "content": answer,
-        "time": datetime.now().strftime("%H:%M")
+        "time": datetime.now().strftime("%I:%M %p")
     })
 
-    st.experimental_rerun()
+    st.rerun()
 
 # ===== FLOATING CLEAR CHAT BUTTON =====
 if st.session_state.history:
     if st.button("🗑️", key="clear", help="Clear chat"):
         st.session_state.history = []
-        st.experimental_rerun()
+        st.rerun()

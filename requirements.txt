@@ -1,3 +1,6 @@
+# pip install from PyPI but force rebuild
+# pip install --upgrade --force-reinstall --no-cache-dir --verbose llama-cpp-python
+
 fastapi==0.95.2
 uvicorn==0.22.0
 requests==2.31.0
