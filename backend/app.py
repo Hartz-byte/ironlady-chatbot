@@ -33,36 +33,10 @@ FAQ_PATH = os.path.join(BASE_DIR, "faqs.json")
 with open(FAQ_PATH, "r", encoding="utf-8") as f:
     FAQS = json.load(f)
 
-# Global model instance
+# Global model instance (will be initialized on first use)
 MODEL = None
 
-# Initialize model at startup
-def startup_event():
-    global MODEL
-    try:
-        MODEL = LocalModel()
-        print("Model loaded successfully at startup")
-    except Exception as e:
-        print(f"Error loading model at startup: {str(e)}")
-        raise
-
-# Register startup event
-app.on_event("startup")(startup_event)
-
-class ChatRequest(BaseModel):
-    question: str
-    use_model: bool = True
-
-@app.get("/health")
-async def health_check():
-    """Health check endpoint to verify the API is running"""
-    return {
-        "status": "healthy",
-        "model_loaded": MODEL is not None
-    }
-
-def init_model():
-    """Initialize the local LLM model."""
+def get_model():
     global MODEL
     if MODEL is None:
         try:
@@ -72,6 +46,39 @@ def init_model():
             print(f"Error loading model: {str(e)}")
             raise
     return MODEL
+
+class ChatRequest(BaseModel):
+    question: str
+    use_model: bool = True
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint to verify the API is running"""
+    try:
+        model = get_model()
+        return {
+            "status": "healthy",
+            "model_loaded": model is not None
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+            "model_loaded": False
+        }
+
+@app.on_event("startup")
+async def startup_event():
+    # Pre-load the model on startup
+    try:
+        get_model()
+        print("Model pre-loaded on startup")
+    except Exception as e:
+        print(f"Failed to pre-load model: {str(e)}")
+
+def init_model():
+    """Initialize and return the local LLM model."""
+    return get_model()
 
 def find_faq_answer(question: str) -> Optional[str]:
     """Search for a matching FAQ and return the answer if found.
@@ -149,16 +156,11 @@ async def chat(chat_request: ChatRequest):
         # 2) If no FAQ match and model usage is allowed, use the LLM
         if chat_request.use_model:
             try:
-                model = init_model()
-                if model is None:
-                    raise Exception("Model failed to initialize")
+                model = get_model()
+                llm_prompt = f"""{chat_request.question}
                 
-                # Add context to the user's question for better LLM responses
-                llm_prompt = f"""You are a helpful assistant for Iron Lady, a leadership development organization for women. 
-                The user asked: {user_input}
-                
-                Please provide a helpful and concise response. If the question is about Iron Lady programs, 
-                focus on leadership development for women. Be friendly and professional in your response."""
+                Please provide a helpful response about Iron Lady's leadership programs and services. 
+                Focus on leadership development for women. Be friendly and professional in your response."""
                 
                 response = model.generate(llm_prompt, max_tokens=256)
                 return {
@@ -184,6 +186,8 @@ async def chat(chat_request: ChatRequest):
             "is_faq": False
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Error in chat endpoint: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="An unexpected error occurred")

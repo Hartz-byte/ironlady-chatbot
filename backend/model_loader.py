@@ -1,4 +1,5 @@
 import os
+import fcntl
 from typing import Dict
 from llama_cpp import Llama
 
@@ -51,31 +52,53 @@ Respond as a helpful assistant. If the user asks for specific program logistics 
 """
 
 class LocalModel:
-    def __init__(self, config: Dict = MODEL_CONFIG):
-        self.config = config
-        print(f"Loading local model from: {config['model_path']}")
-        
-        # Ensure the model file exists
-        if not os.path.exists(config['model_path']):
-            raise FileNotFoundError(f"Model file not found at {config['model_path']}")
+    _instance = None
+    _lock_file = "/tmp/ironlady_model.lock"
+    _initialized = False
+    
+    def __new__(cls, config: Dict = MODEL_CONFIG):
+        if cls._instance is None:
+            # Use a file lock to prevent multiple processes from loading the model
+            lock_fd = os.open(cls._lock_file, os.O_CREAT | os.O_WRONLY)
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                cls._instance = super(LocalModel, cls).__new__(cls)
+                cls._instance._initialize(config)
+            except BlockingIOError:
+                # Another process is initializing, wait for it
+                fcntl.flock(lock_fd, fcntl.LOCK_SH)
+                if cls._instance is None:
+                    raise RuntimeError("Failed to initialize model")
+            finally:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                os.close(lock_fd)
+        return cls._instance
+    
+    def _initialize(self, config: Dict):
+        if not self._initialized:
+            self.config = config
+            print(f"Loading local model from: {config['model_path']}")
             
-        # Initialize the model with GPU support
-        self.llm = Llama(
-            model_path=config['model_path'],
-            n_ctx=config['n_ctx'],
-            n_threads=config['n_threads'],
-            n_gpu_layers=config['n_gpu_layers'],
-            n_batch=config.get('n_batch', 512),
-            main_gpu=config.get('main_gpu', 0),
-            tensor_split=config.get('tensor_split', [0.9]),
-            verbose=config.get('verbose', True)
-        )
-        
-        # Verify GPU is being used
-        if self.llm._model is not None:
-            print(f"Model loaded successfully with {config['n_gpu_layers']} layers on GPU")
-        else:
-            print("Warning: Model not properly initialized")
+            if not os.path.exists(config['model_path']):
+                raise FileNotFoundError(f"Model file not found at {config['model_path']}")
+                
+            self.llm = Llama(
+                model_path=config['model_path'],
+                n_ctx=config['n_ctx'],
+                n_threads=config['n_threads'],
+                n_gpu_layers=config['n_gpu_layers'],
+                n_batch=config.get('n_batch', 512),
+                main_gpu=config.get('main_gpu', 0),
+                tensor_split=config.get('tensor_split', [0.9]),
+                verbose=config.get('verbose', True)
+            )
+            
+            if self.llm._model is not None:
+                print(f"Model loaded successfully with {config['n_gpu_layers']} layers on GPU")
+            else:
+                print("Warning: Model not properly initialized")
+                
+            self._initialized = True
 
     def generate(self, user_message: str, max_tokens: int = 256):
         """Generate a response using the local LLM."""
